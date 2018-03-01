@@ -144,7 +144,7 @@ Vue的响应式数据都会有一个__ob__的属性作为标记，里面存放�
  * object's property keys into getter/setters that
  * collect dependencies and dispatches updates.
  */
-export class  {
+export class Observer {
   value: any;
   dep: Dep;
   vmCount: number; // number of vms that has this object as root $data
@@ -197,7 +197,7 @@ export class  {
    */
   observeArray (items: Array<any>) {
 
-    /*数组需要便利每一个成员进行observe*/
+    /*数组需要遍历每一个成员进行observe*/
     for (let i = 0, l = items.length; i < l; i++) {
       observe(items[i])
     }
@@ -274,13 +274,64 @@ import { def } from '../util/index'
 /*取得原生数组的原型*/
 const arrayProto = Array.prototype
 /*创建一个新的数组对象，修改该对象上的数组的七个方法，防止污染原生数组方法*/
-export const arrayMethods = Object.create(arrayProto)
+
+// 在原有方法上继续做封装，实现这个思路有继承的方法，还有用类似于装饰的设计模式包装它，2种的写法略有不同，那这里为什么不用继承呢？因为
+// ES5及以下的JS无法完美继承数组
+/*
+因为响应式的length和[[class]]我们都无法在js层面实现，因此我们无法去用任何一个对象来“仿照”一个数组
+这也就导致了你要想创造一个fakeArray，你必须在fakeArray里直接用Array构造函数，不能创造一个对象然后让对象继承Array.prototype，而Array构造函数执行时不会对传进去的this做任何处理。
+所以，这就无解了，你根本没办法继承他，很多人就只能选择暴力的去修改Array.prototype。
+-by Ma63d
+*/
+/*
+进一步解释 -by T
+function TArray () {
+  Array.apply(this, arguments)
+}
+
+TArray.prototype.push = function () {
+  Array.prototype.push.apply(this, arguments)
+  console.log('push被我修改了,但是这样的数组是完美的吗？')
+}
+
+let arr = new TArray(0,1,2)
+console.log(arr.length) // 看看，构造函数会出问题吗？  答：打印undefined
+arr.push(3)
+arr.length = 0
+console.log(arr) // 看看，这个length真的是响应式的吗？ 答： 打印 TArray { '0': 3, length: 0 }
+*/
+/*
+当然，es6解决了这个问题，如下方案是可行的
+class TArray2 extends Array {
+  constructor () {
+    super(...arguments)
+  }
+  push () {
+    let res = super.push(...arguments)
+    console.log('push被我修改了,但是这样真的有用吗')
+    return res
+  }
+}
+
+let arr2 = new TArray2(1, 2, 3)
+arr2.push(4)
+console.log(arr2) // TArray2 [ 1, 2, 3, 4 ]
+arr2.length = 0
+console.log(arr2) // TArray2 []
+但是，这个在es5是无法做到的，所以并没有使用这种方法
+*/
+/*
+关于es5和es6在继承方面的区别，引用阮一峰老师的话
+ES5 的继承，实质是先创造子类的实例对象this，然后再将父类的方法添加到this上面（Parent.apply(this)）。ES6 的继承机制完全不同，实质是先创造父类的实例对象this（所以必须先调用super方法），然后再用子类的构造函数修改this。
+*/
+
+export const arrayMethods = Object.create(arrayProto);
 
 /**
  * Intercept mutating methods and emit events
  */
  /*这里重写了数组的这些方法，在保证不污染原生数组原型的情况下重写数组的这些方法，截获数组的成员发生的变化，执行原生数组操作的同时dep通知关联的所有观察者进行响应式处理*/
-;[
+[
   'push',
   'pop',
   'shift',
@@ -288,8 +339,7 @@ export const arrayMethods = Object.create(arrayProto)
   'splice',
   'sort',
   'reverse'
-]
-.forEach(function (method) {
+].forEach(function (method) {
   // cache original method
   /*将数组的原生方法缓存起来，后面要调用*/
   const original = arrayProto[method]
@@ -428,6 +478,7 @@ export default class Watcher {
     */
     if (this.user) {
       try {
+        // getter是expOrFn，现在执行了，就会触发那些依赖的getter，从而把这个watcher添加到他们的dep中
         value = this.getter.call(vm, vm)
       } catch (e) {
         handleError(e, vm, `getter for watcher "${this.expression}"`)
@@ -453,6 +504,7 @@ export default class Watcher {
    * Add a dependency to this directive.
    */
    /*添加一个依赖关系到Deps集合中*/
+   // 平时把以来加到deps的数组里，当这个watcher被销毁或解绑等的时候，就可以通过这个数组找到所有依赖，从每个依赖中把这个watcher删除
   addDep (dep: Dep) {
     const id = dep.id
     if (!this.newDepIds.has(id)) {
@@ -687,6 +739,27 @@ export function defineReactive (
         if (childOb) {
 
           /*子对象进行依赖收集，其实就是将同一个watcher观察者实例放进了两个depend中，一个是正在本身闭包中的depend，另一个是子元素的depend*/
+          /*
+            T:这里感觉大大没有讲清楚，并且我也想了挺长时间的
+            同一个watcher吧它和它的childOb的dep都添加进去，在添加的过程中，这2个dep也会把这个watcher都添加到自己的数组里,这是双向的
+            大大说的没错，一个是闭包中的depend，另一个是子元素的depend，那么这个子元素的depend为什么也要添加进去呢？
+            在defineReactive中，所有的属性都会变成响应式的，child已经被递归遍历并且变成响应式了，那这里的childOb.dep.depend()的依赖追踪到底有什么用呢？
+            
+            事实上，这里可以通过notify来思考
+            纵观vue的整个源代码，dep.notify总共出现了4次，（在这个markDown中有2次），他们分别是
+            1.数组7个变异方法的重写    ob.dep.notify()
+            2.在defineReactive中的set       dep.notify()
+            3.Vue.set    ob.dep.notify()
+            4.Vue.del    ob.dep.notify()
+            这里发现，在做通知的时候也分成了2派,dep.notify()是闭包的dep的通知，其他则为子对象的通知
+            闭包的通知是直接的，也即属性本身的修改
+            不管是 a从3变成5 还是obj从{id: 1}变成{name: 't'} 对属性本身的改变，为dep的通知
+            而对数组和对象设定值的时候的通知，由 ob.dep.notify()实现
+            即a = [1], a.push(2)的时候，会有通知，这就是          childOb.dep.depend()实现的
+            而 obj = {id: 1} ,obj.id = 2 这样obj的watcher并不会得到通知
+            而 obj = {id: 1} Vue.set(obj, 'id', 2) 这时候obj也会得到通知
+            为了实现对象的属性的修改而通知对象的watcher，就需要childOb.dep.depend()
+          */
           childOb.dep.depend()
         }
         if (Array.isArray(value)) {
