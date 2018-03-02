@@ -47,6 +47,7 @@ $on方法用来在vm实例上监听一个自定义事件，该事件可用$emit�
       // optimize hook:event cost by using a boolean flag marked at registration
       // instead of a hash lookup
       /*这里在注册事件的时候标记bool值也就是个标志位来表明存在钩子，而不需要通过哈希表的方法来查找是否有钩子，这样做可以减少不必要的开销，优化性能。*/
+      // T:从这里也可以看到，钩子也是由事件实现的。钩子是以hook:created的形式书写的，所以个人尽量不要书写hook:开头的事件名 
       if (hookRE.test(event)) {
         vm._hasHookEvent = true
       }
@@ -83,6 +84,7 @@ Vue.prototype.$off = function (event?: string | Array<string>, fn?: Function): C
     const vm: Component = this
     // all
     /*如果不传参数则注销所有事件*/
+    // T:但是为什么不反转vm._hasHookEvent变量呢？因为已经不需要了？
     if (!arguments.length) {
       vm._events = Object.create(null)
       return vm

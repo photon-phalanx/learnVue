@@ -70,7 +70,7 @@ export default class VNode {
     this.raw = false
     /*静态节点标志*/
     this.isStatic = false
-    /*是否作为跟节点插入*/
+    /*是否作为根节点插入*/
     this.isRootInsert = true
     /*是否为注释节点*/
     this.isComment = false
@@ -161,6 +161,7 @@ isOnce: 是否有v-once指令
 下面这些方法都是一些常用的构造VNode的方法。
 
 ### createEmptyVNode 创建一个空VNode节点
+也就是注释节点，没有内容
 
 ```javascript
 /*创建一个空VNode节点*/
@@ -259,7 +260,7 @@ export function createTextVNode (val: string | number) {
 ```
 
 ### cloneVNode 克隆一个VNode节点
-
+可以克隆任意节点，isCloned为true
 ```javascript
 export function cloneVNode (vnode: VNode): VNode {
   const cloned = new VNode(
@@ -278,6 +279,8 @@ export function cloneVNode (vnode: VNode): VNode {
   return cloned
 }
 ```
+
+嗯还有一个ElementVNode 普通的元素节点
 
 ## createElement
 
@@ -319,6 +322,8 @@ export function _createElement (
     如果传递data参数且data的__ob__已经定义（代表已经被observed，上面绑定了Oberver对象），
     https://cn.vuejs.org/v2/guide/render-function.html#约束
     那么创建一个空节点
+    
+    T: 因为渲染过程中，observed的data可能发生改变，触发watcher回调，导致不可预知的情况？
   */
   if (isDef(data) && isDef((data: any).__ob__)) {
     process.env.NODE_ENV !== 'production' && warn(
@@ -390,3 +395,9 @@ export function _createElement (
 ```
 
 createElement用来创建一个虚拟节点。当data上已经绑定__ob__的时候，代表该对象已经被Oberver过了，所以创建一个空节点。tag不存在的时候同样创建一个空节点。当tag不是一个String类型的时候代表tag是一个组件的构造类，直接用new VNode创建。当tag是String类型的时候，如果是保留标签，则用new VNode创建一个VNode实例，如果在vm的option的components找得到该tag，代表这是一个组件，否则统一用new VNode创建。
+
+###结合另一位大大的资料一起学习，偷了一下他的图理解流程，感谢
+
+![](../images/vNodeCreate.png)
+https://joeray61.com/2017/02/08/Vue%E5%8E%9F%E7%90%86%E8%A7%A3%E6%9E%90%E4%B9%8BVirtual-Dom/
+非常感谢
